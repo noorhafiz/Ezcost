@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>EZ KOST</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
     body{font-family:sans-serif;background:#f3f4f6;}
     .container{max-width:900px;margin:auto;background:#A8BBA2;padding:20px;border-radius:10px;}
@@ -95,7 +94,7 @@
       <p class="font-bold text-green-700 mt-3">Harga Jualan Disyorkan: <span id="recommendedSellingPrice">RM 0.00</span></p>
     </div>
 
-    <!-- Titik Pulang Modal -->
+    <!-- Titik Pulang Modal (tanpa graf) -->
     <div class="mb-8 bg-white p-4 rounded shadow">
       <h2 class="section-title">Analisis Titik Pulang Modal (BEP)</h2>
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
@@ -103,17 +102,21 @@
         <div class="input-group"><label>Kos Berubah Seunit (RM)</label><input id="variableCostPerUnit" class="input-field bg-gray-100" readonly></div>
         <div class="input-group"><label>Kos Tetap Bulanan (RM)</label><input id="fixedCostMonthly" class="input-field bg-gray-100" readonly></div>
       </div>
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
         <div class="input-group"><label>Margin Sumbangan Seunit (RM)</label><input id="contributionPerUnit" class="input-field bg-gray-100" readonly></div>
         <div class="input-group"><label>BEP (Unit)</label><input id="bepUnits" class="input-field bg-gray-100" readonly></div>
         <div class="input-group"><label>BEP (RM)</label><input id="bepSales" class="input-field bg-gray-100" readonly></div>
       </div>
-      <canvas id="bepChart" class="mt-6"></canvas>
+      <div class="bg-blue-50 p-4 rounded mt-4">
+        <h3 class="font-semibold mb-2">Interpretasi BEP:</h3>
+        <p class="text-sm">Untuk mencapai titik pulang modal, anda perlu menjual <span id="interpretBepUnits" class="font-bold">0</span> unit produk.</p>
+        <p class="text-sm">Ini bersamaan dengan jumlah jualan sebanyak <span id="interpretBepSales" class="font-bold">RM 0.00</span>.</p>
+        <p class="text-sm mt-2">Setelah menjual melebihi jumlah ini, setiap unit tambahan akan memberikan keuntungan.</p>
+      </div>
     </div>
   </div>
 
   <script>
-    let chart;
     function money(n){return 'RM '+(isFinite(n)?n:0).toFixed(2);}
 
     function addRow(containerId,rowClass){
@@ -163,12 +166,14 @@
       const margin=(parseFloat(document.getElementById('profitMargin').value)||0)/100;
       const sell=parseFloat(document.getElementById('actualSellingPrice').value)||0;
 
+      // Kos bahan langsung (jumlah bulanan)
       document.querySelectorAll('.raw-material-row').forEach(r=>{
         const i=r.querySelectorAll('input');
         const q=parseFloat(i[1]?.value)||0,p=parseFloat(i[2]?.value)||0,d=(parseFloat(i[3]?.value)||0)/100;
         totalRaw+=q*p*(1-d);
       });
 
+      // Kos buruh langsung (jumlah bulanan)
       document.querySelectorAll('.direct-labour-row').forEach(r=>{
         const i=r.querySelectorAll('input');
         const pekerja=parseFloat(i[1]?.value)||0;
@@ -177,55 +182,50 @@
         totalLab+=pekerja*masa*kadar;
       });
 
+      // Kos overhed (jumlah bulanan)
       document.querySelectorAll('.factory-overhead-row').forEach(r=>{
         totalOver+=parseFloat(r.querySelectorAll('input')[1]?.value)||0;
       });
 
+      // Kira kos PER UNIT
+      const totalRawPerUnit=totalRaw/est;
+      const totalLabPerUnit=totalLab/est;
       const overheadPerUnit=totalOver/est;
-      const costUnit=totalRaw+totalLab+overheadPerUnit;
+      const costUnit=totalRawPerUnit+totalLabPerUnit+overheadPerUnit;
       const priceUnit=costUnit/(1-margin);
 
-      document.getElementById('totalRawMaterialCost').textContent=money(totalRaw);
-      document.getElementById('totalDirectLabourCost').textContent=money(totalLab);
+      // Paparkan kos PER UNIT
+      document.getElementById('totalRawMaterialCost').textContent=money(totalRawPerUnit);
+      document.getElementById('totalDirectLabourCost').textContent=money(totalLabPerUnit);
       document.getElementById('totalFactoryOverheadCost').textContent=money(overheadPerUnit);
-      document.getElementById('summaryRawMaterial').textContent=money(totalRaw);
-      document.getElementById('summaryDirectLabour').textContent=money(totalLab);
+      
+      document.getElementById('summaryRawMaterial').textContent=money(totalRawPerUnit);
+      document.getElementById('summaryDirectLabour').textContent=money(totalLabPerUnit);
       document.getElementById('summaryFactoryOverhead').textContent=money(overheadPerUnit);
       document.getElementById('summaryManufacturingCost').textContent=money(costUnit);
       document.getElementById('recommendedSellingPrice').textContent=money(priceUnit);
 
-      const variable=totalRaw+totalLab;
+      // Untuk BEP
+      const variablePerUnit=totalRawPerUnit+totalLabPerUnit;
       const fixed=totalOver;
-      const contrib=sell-variable;
+      const contrib=sell-variablePerUnit;
       const bepU=contrib>0?fixed/contrib:Infinity;
       const bepS=isFinite(bepU)?bepU*sell:Infinity;
 
-      document.getElementById('variableCostPerUnit').value=variable.toFixed(2);
+      document.getElementById('variableCostPerUnit').value=variablePerUnit.toFixed(2);
       document.getElementById('fixedCostMonthly').value=fixed.toFixed(2);
       document.getElementById('contributionPerUnit').value=contrib.toFixed(2);
       document.getElementById('bepUnits').value=isFinite(bepU)?bepU.toFixed(2):'—';
       document.getElementById('bepSales').value=isFinite(bepS)?bepS.toFixed(2):'—';
-
-      drawChart(sell,variable,fixed,bepU);
-    }
-
-    function drawChart(sell,variable,fixed,bepU){
-      const ctx=document.getElementById('bepChart').getContext('2d');
-      const maxUnits=Math.ceil((bepU*1.5)||100);
-      const units=[...Array(maxUnits+1).keys()];
-      const salesLine=units.map(x=>x*sell);
-      const costLine=units.map(x=>fixed+variable*x);
-
-      if(chart){chart.destroy();}
-      chart=new Chart(ctx,{
-        type:'line',
-        data:{labels:units,
-          datasets:[
-            {label:'Jumlah Jualan (RM)',data:salesLine,borderColor:'green',fill:false},
-            {label:'Jumlah Kos (RM)',data:costLine,borderColor:'red',fill:false}
-          ]},
-        options:{scales:{x:{title:{display:true,text:'Unit Jualan'}},y:{title:{display:true,text:'RM'}}}}
-      });
+      
+      // Paparkan interpretasi
+      if (isFinite(bepU)) {
+        document.getElementById('interpretBepUnits').textContent = bepU.toFixed(0);
+        document.getElementById('interpretBepSales').textContent = 'RM ' + bepS.toFixed(2);
+      } else {
+        document.getElementById('interpretBepUnits').textContent = '—';
+        document.getElementById('interpretBepSales').textContent = '—';
+      }
     }
   </script>
 </body>
